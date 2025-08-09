@@ -10,6 +10,7 @@ import 'package:solar_app/models/cable_entry.dart';
 import 'package:csv/csv.dart';
 import 'dart:convert';
 import 'dart:typed_data'; // Required for Uint8List
+import 'package:permission_handler/permission_handler.dart';
 // Removed: dart:io, path_provider, open_filex, http
 
 class InfoScreen extends StatefulWidget {
@@ -48,147 +49,157 @@ class _InfoScreenState extends State<InfoScreen> {
     });
 
     try {
-      FilePickerResult? result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['csv', 'xlsx'],
-        allowMultiple: false,
-      );
-
-      if (result != null && result.files.single.bytes != null) {
-        final platformFile = result.files.single;
-        final String fileName = platformFile.name;
-        final Uint8List fileBytes = platformFile.bytes!;
-
-        if (!fileName.toLowerCase().endsWith('.csv') &&
-            !fileName.toLowerCase().endsWith('.xlsx')) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Please select a CSV or Excel (.xlsx) file.'),
-              ),
-            );
-          }
-          setState(() {
-            _isUploadingCableSchedule = false;
-          });
-          return;
-        }
-
-        final String csvString = utf8.decode(fileBytes);
-        final List<List<dynamic>> csvTable = const CsvToListConverter().convert(
-          csvString,
+      final status = await Permission.storage.request();
+      if (status.isGranted) {
+        FilePickerResult? result = await FilePicker.platform.pickFiles(
+          type: FileType.custom,
+          allowedExtensions: ['csv', 'xlsx'],
+          allowMultiple: false,
         );
 
-        if (csvTable.isEmpty) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Selected file is empty or could not be parsed.'),
-              ),
-            );
-          }
-          setState(() {
-            _isUploadingCableSchedule = false;
-          });
-          return;
-        }
+        if (result != null && result.files.single.bytes != null) {
+          final platformFile = result.files.single;
+          final String fileName = platformFile.name;
+          final Uint8List fileBytes = platformFile.bytes!;
 
-        final List<dynamic> header = csvTable[0];
-        final int scbNoIndex = header.indexOf('SCB NO');
-        final int icrNoIndex = header.indexOf('ICR NO');
-        final int inverterNoIndex = header.indexOf('INVERTER NO');
-        final int scheduledLengthIndex = header.indexOf(
-          'TOTAL CABLE ROUTE LENGTH (2R X 1C X 300sqmm)( +&-)',
-        );
-
-        if (scbNoIndex == -1 ||
-            icrNoIndex == -1 ||
-            inverterNoIndex == -1 ||
-            scheduledLengthIndex == -1) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text(
-                  'CSV headers missing. Expected: "SCB NO", "ICR NO", "INVERTER NO", "TOTAL CABLE ROUTE LENGTH (2R X 1C X 300sqmm)( +&-)".',
+          if (!fileName.toLowerCase().endsWith('.csv') &&
+              !fileName.toLowerCase().endsWith('.xlsx')) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Please select a CSV or Excel (.xlsx) file.'),
                 ),
-              ),
-            );
+              );
+            }
+            setState(() {
+              _isUploadingCableSchedule = false;
+            });
+            return;
           }
-          setState(() {
-            _isUploadingCableSchedule = false;
-          });
-          return;
-        }
 
-        List<CableEntry> newCableEntries = [];
-        for (int i = 1; i < csvTable.length; i++) {
-          final row = csvTable[i];
-          if (row.length > scheduledLengthIndex) {
-            try {
-              final String scbNo = row[scbNoIndex]?.toString() ?? '';
-              final String icrNo = row[icrNoIndex]?.toString() ?? '';
-              final String inverterNo = row[inverterNoIndex]?.toString() ?? '';
-              final double scheduledLength =
-                  double.tryParse(
-                    row[scheduledLengthIndex]?.toString() ?? '0.0',
-                  ) ??
-                  0.0;
+          final String csvString = utf8.decode(fileBytes);
+          final List<List<dynamic>> csvTable = const CsvToListConverter()
+              .convert(csvString);
 
-              if (scbNo.isNotEmpty) {
-                newCableEntries.add(
-                  CableEntry(
-                    scbNo: scbNo,
-                    icrNo: icrNo,
-                    inverterNo: inverterNo,
-                    scheduledLength: scheduledLength,
+          if (csvTable.isEmpty) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text(
+                    'Selected file is empty or could not be parsed.',
                   ),
-                );
+                ),
+              );
+            }
+            setState(() {
+              _isUploadingCableSchedule = false;
+            });
+            return;
+          }
+
+          final List<dynamic> header = csvTable[0];
+          final int scbNoIndex = header.indexOf('SCB NO');
+          final int icrNoIndex = header.indexOf('ICR NO');
+          final int inverterNoIndex = header.indexOf('INVERTER NO');
+          final int scheduledLengthIndex = header.indexOf(
+            'TOTAL CABLE ROUTE LENGTH (2R X 1C X 300sqmm)( +&-)',
+          );
+
+          if (scbNoIndex == -1 ||
+              icrNoIndex == -1 ||
+              inverterNoIndex == -1 ||
+              scheduledLengthIndex == -1) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text(
+                    'CSV headers missing. Expected: "SCB NO", "ICR NO", "INVERTER NO", "TOTAL CABLE ROUTE LENGTH (2R X 1C X 300sqmm)( +&-)".',
+                  ),
+                ),
+              );
+            }
+            setState(() {
+              _isUploadingCableSchedule = false;
+            });
+            return;
+          }
+
+          List<CableEntry> newCableEntries = [];
+          for (int i = 1; i < csvTable.length; i++) {
+            final row = csvTable[i];
+            if (row.length > scheduledLengthIndex) {
+              try {
+                final String scbNo = row[scbNoIndex]?.toString() ?? '';
+                final String icrNo = row[icrNoIndex]?.toString() ?? '';
+                final String inverterNo =
+                    row[inverterNoIndex]?.toString() ?? '';
+                final double scheduledLength =
+                    double.tryParse(
+                      row[scheduledLengthIndex]?.toString() ?? '0.0',
+                    ) ??
+                    0.0;
+
+                if (scbNo.isNotEmpty) {
+                  newCableEntries.add(
+                    CableEntry(
+                      scbNo: scbNo,
+                      icrNo: icrNo,
+                      inverterNo: inverterNo,
+                      scheduledLength: scheduledLength,
+                    ),
+                  );
+                }
+              } catch (e) {
+                print('Error parsing row $i: $row - $e');
               }
-            } catch (e) {
-              print('Error parsing row $i: $row - $e');
             }
           }
-        }
 
-        if (newCableEntries.isEmpty) {
+          if (newCableEntries.isEmpty) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text(
+                    'No valid cable entries found in the selected file.',
+                  ),
+                ),
+              );
+            }
+            setState(() {
+              _isUploadingCableSchedule = false;
+            });
+            return;
+          }
+
+          await _firestoreService.uploadCableScheduleFromCsv(
+            newCableEntries,
+            fileName,
+            fileBytes,
+          );
+
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
+              SnackBar(
                 content: Text(
-                  'No valid cable entries found in the selected file.',
+                  '${newCableEntries.length} cable entries uploaded and saved successfully!',
                 ),
               ),
             );
           }
-          setState(() {
-            _isUploadingCableSchedule = false;
-          });
-          return;
-        }
-
-        await _firestoreService.uploadCableScheduleFromCsv(
-          newCableEntries,
-          fileName,
-          fileBytes,
-        );
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                '${newCableEntries.length} cable entries uploaded and saved successfully!',
+        } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('File picking cancelled or no file selected.'),
               ),
-            ),
-          );
+            );
+          }
         }
       } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('File picking cancelled or no file selected.'),
-            ),
-          );
-        }
+        // User canceled the picker
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('File picking canceled.')));
       }
     } catch (e) {
       print('Error uploading cable schedule: $e');
