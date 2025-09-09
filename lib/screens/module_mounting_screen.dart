@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:solar_app/models/mounting_progress_item.dart';
 import 'package:solar_app/widgets/progress_input_row.dart';
 import 'package:solar_app/services/firestore_service.dart';
+import 'package:solar_app/services/twilio_service.dart';
+// Import your Twilio
 
 class ModuleMountingScreen extends StatefulWidget {
   const ModuleMountingScreen({super.key});
@@ -13,15 +15,42 @@ class ModuleMountingScreen extends StatefulWidget {
 
 class _ModuleMountingScreenState extends State<ModuleMountingScreen> {
   final FirestoreService _firestoreService = FirestoreService();
+  final TwilioService _twilioService =
+      TwilioService(); // Create a single instance
   final _formKey = GlobalKey<FormState>();
 
   Map<String, TextEditingController> _todayProgressControllers = {};
+  String? _icrVendor;
+  int? _icrLocation;
+  String? _siteEngineerName;
+  String? _siteEngineerPhoneNumber;
 
   @override
   void initState() {
     super.initState();
     // Initialize default data in Firestore if the collection is empty.
+    // Initialize default data in Firestore if the collection is empty.
     _firestoreService.initializeDefaultMountingProgressItems();
+
+    // Listen to the ICR info stream and update state variables
+    _firestoreService.getIcrInfo().listen((icrInfo) {
+      if (icrInfo != null) {
+        setState(() {
+          _icrVendor = icrInfo.vendor;
+          _icrLocation = icrInfo.location;
+        });
+      }
+    });
+
+    // Listen to the selected site engineer info stream
+    _firestoreService.getSelectedSiteEngineer().listen((engineerInfo) {
+      if (engineerInfo.isNotEmpty) {
+        setState(() {
+          _siteEngineerName = engineerInfo['name'];
+          _siteEngineerPhoneNumber = engineerInfo['phoneNumber'];
+        });
+      }
+    });
   }
 
   @override
@@ -73,6 +102,39 @@ class _ModuleMountingScreenState extends State<ModuleMountingScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Daily progress saved successfully!')),
         );
+        // Construct a dynamic message using the stored variables
+        final String messageBody =
+            'Daily MMS progress for $_icrLocation project, '
+            'Vendor: $_icrVendor, '
+            'has been saved successfully!';
+
+        // Send the confirmation SMS after saving
+        if (_siteEngineerPhoneNumber != null) {
+          try {
+            await _twilioService.sendWhatsAppMessage(
+              _siteEngineerPhoneNumber!,
+              messageBody,
+            );
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Progress saved and SMS sent!')),
+            );
+          } catch (e) {
+            print('Failed to send SMS: $e');
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Progress saved, but failed to send SMS.'),
+              ),
+            );
+          }
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Progress saved, but no site engineer phone number found.',
+              ),
+            ),
+          );
+        }
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('No new progress entered.')),

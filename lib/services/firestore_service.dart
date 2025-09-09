@@ -447,6 +447,87 @@ class FirestoreService {
     }
   }
 
+  // --- Site Engineer ---
+
+  Future<void> uploadSiteEngineerInfo(
+    String engineerName,
+    String phoneNumber,
+  ) async {
+    if (userId == null) {
+      throw Exception('User not authenticated.');
+    }
+    if (!isDeveloper(userId)) {
+      throw Exception(
+        'Permission denied: Only developers can upload site engineer info.',
+      );
+    }
+
+    try {
+      await _db.collection('siteEngineers').doc().set({
+        'name': engineerName,
+        'phoneNumber': phoneNumber,
+        'uploadedBy': userId,
+        'uploadedAt': DateTime.now(),
+      });
+      print(
+        'FirestoreService: Site engineer info for $engineerName saved successfully.',
+      );
+    } catch (e) {
+      print('FirestoreService: Error saving site engineer info: $e');
+      throw Exception('Failed to upload site engineer info: $e');
+    }
+  }
+
+  // streaming the site Engineer info
+  Stream<List<Map<String, String>>> getSiteEngineers() {
+    return _db.collection('siteEngineers').snapshots().map((snapshot) {
+      return snapshot.docs.map((doc) {
+        return {
+          'name': doc.data()['name'] as String,
+          'phoneNumber': doc.data()['phoneNumber'] as String,
+        };
+      }).toList();
+    });
+  }
+
+  Future<void> saveUserSelectedEngineerInfo(
+    String userId,
+    String engineerName,
+    String phoneNumber,
+  ) async {
+    try {
+      await _db.collection('users').doc(userId).set({
+        'siteEngineerName': engineerName,
+        'siteEngineerPhoneNumber': phoneNumber,
+      }, SetOptions(merge: true));
+      print('User selected site engineer $engineerName saved successfully.');
+    } catch (e) {
+      print('Error saving user selected site engineer: $e');
+      rethrow;
+    }
+  }
+
+  // streaming the site enginner info
+
+  Stream<Map<String, String?>> getSelectedSiteEngineer() {
+    if (userId == null) {
+      print(
+        'FirestoreService: getSelectedSiteEngineer - userId is null. Returning empty stream.',
+      );
+      return Stream.value({});
+    }
+
+    return _db.collection('users').doc(userId).snapshots().map((snapshot) {
+      if (snapshot.exists && snapshot.data() != null) {
+        return {
+          'name': snapshot.data()!['siteEngineerName'] as String?,
+          'phoneNumber': snapshot.data()!['siteEngineerPhoneNumber'] as String?,
+        };
+      }
+      return {};
+    });
+  }
+
   // --- Quality & Safety Files ---
 
   Stream<List<QualitySafetyItem>> getQualitySafetyItems() {

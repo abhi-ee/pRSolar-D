@@ -25,8 +25,14 @@ class _InfoScreenState extends State<InfoScreen> {
   final AuthService _authService = AuthService();
   final User? currentUser = FirebaseAuth.instance.currentUser;
 
+  final TextEditingController _engineerNameController = TextEditingController();
+  final TextEditingController _engineerPhoneController =
+      TextEditingController();
+  bool _isUploadingEngineerInfo = false;
   bool _isUploadingCableSchedule = false;
   bool _isUploadingQualitySafetyFile = false;
+  String? _selectedEngineerName;
+  String? _selectedEngineerPhoneNumber;
   // Removed: bool _isLoadingDownload;
 
   // Removed: String? _localIcrDrawingPath;
@@ -36,6 +42,13 @@ class _InfoScreenState extends State<InfoScreen> {
   void initState() {
     super.initState();
     // Removed: Listener for ICR info changes related to drawing path
+  }
+
+  @override
+  void dispose() {
+    _engineerNameController.dispose();
+    _engineerPhoneController.dispose();
+    super.dispose();
   }
 
   // Removed: Helper to extract filename from a URL (_getFileNameFromUrl)
@@ -317,6 +330,84 @@ class _InfoScreenState extends State<InfoScreen> {
     }
   }
 
+  // NEW: Method to upload Site Enginerr Info
+
+  // lib/screens/info_screen.dart
+
+  // ... existing code ...
+
+  Future<void> _uploadSiteEngineerInfo() async {
+    if (_engineerNameController.text.isEmpty ||
+        _engineerPhoneController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please fill both name and phone number.'),
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _isUploadingEngineerInfo = true;
+    });
+
+    try {
+      await _firestoreService.uploadSiteEngineerInfo(
+        _engineerNameController.text.trim(),
+        _engineerPhoneController.text.trim(),
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Site engineer info uploaded successfully!'),
+          ),
+        );
+        _engineerNameController.clear();
+        _engineerPhoneController.clear();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isUploadingEngineerInfo = false;
+        });
+      }
+    }
+  }
+
+  // Method to save the selected engineer to the user's profile
+  Future<void> _saveUserSelectedEngineer() async {
+    if (_selectedEngineerName == null || _selectedEngineerPhoneNumber == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select a site engineer.')),
+      );
+      return;
+    }
+
+    if (currentUser == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('User not authenticated.')));
+      return;
+    }
+
+    // Save the selected engineer info to the user's document
+    await _firestoreService.saveUserSelectedEngineerInfo(
+      currentUser!.uid,
+      _selectedEngineerName!,
+      _selectedEngineerPhoneNumber!,
+    );
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Site engineer selected successfully!')),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final bool isCurrentUserDeveloper = _firestoreService.isDeveloper(
@@ -369,7 +460,7 @@ class _InfoScreenState extends State<InfoScreen> {
                       _buildInfoCard(
                         context,
                         title: 'Vendor Form Name',
-                        value: 'Contractor ${icrInfo.vendor}',
+                        value: ' ${icrInfo.vendor}',
                         icon: Icons.person_outline,
                       ),
                       const SizedBox(height: 16),
@@ -377,7 +468,7 @@ class _InfoScreenState extends State<InfoScreen> {
                       _buildInfoCard(
                         context,
                         title: 'Working Block (Location)',
-                        value: 'Location ${icrInfo.location}',
+                        value: 'ICR- ${icrInfo.location}',
                         icon: Icons.location_on_outlined,
                       ),
                       const SizedBox(height: 16),
@@ -443,6 +534,143 @@ class _InfoScreenState extends State<InfoScreen> {
                       ),
                     ),
               const SizedBox(height: 20),
+              // select your site engineer
+              if (!isCurrentUserDeveloper)
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Text(
+                      'Select Site Engineer',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blueGrey,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 10),
+                    StreamBuilder<List<Map<String, String>>>(
+                      stream: _firestoreService.getSiteEngineers(),
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState ==
+                            ConnectionState.waiting) {
+                          return const Center(
+                            child: CircularProgressIndicator(),
+                          );
+                        }
+                        if (snapshot.hasError) {
+                          return const Text('Error loading engineers.');
+                        }
+                        if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                          return const Text('No engineers found.');
+                        }
+
+                        final engineers = snapshot.data!;
+                        return DropdownButtonFormField<String>(
+                          decoration: const InputDecoration(
+                            labelText: 'Site Engineer',
+                            border: OutlineInputBorder(),
+                          ),
+                          value: _selectedEngineerName,
+                          items: engineers.map((engineer) {
+                            return DropdownMenuItem<String>(
+                              value: engineer['name'],
+                              child: Text(engineer['name']!),
+                            );
+                          }).toList(),
+                          onChanged: (String? newValue) {
+                            if (newValue != null) {
+                              final selectedEngineer = engineers.firstWhere(
+                                (engineer) => engineer['name'] == newValue,
+                              );
+                              setState(() {
+                                _selectedEngineerName = newValue;
+                                _selectedEngineerPhoneNumber =
+                                    selectedEngineer['phoneNumber'];
+                              });
+                            }
+                          },
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 20),
+                    ElevatedButton.icon(
+                      onPressed: _saveUserSelectedEngineer,
+                      icon: const Icon(Icons.check, color: Colors.white),
+                      label: const Text('Confirm Selection'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        foregroundColor: Colors.white,
+                        minimumSize: const Size.fromHeight(50),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        elevation: 4,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                  ],
+                ),
+
+              const SizedBox(height: 20),
+
+              // NEW: Upload Site Engineer Info (Developer Only)
+              if (isCurrentUserDeveloper)
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Text(
+                      'Upload Site Engineer Info',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blueGrey,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 10),
+                    TextFormField(
+                      controller: _engineerNameController,
+                      decoration: const InputDecoration(
+                        labelText: 'Engineer Name',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextFormField(
+                      controller: _engineerPhoneController,
+                      decoration: const InputDecoration(
+                        labelText: 'Phone Number',
+                        border: OutlineInputBorder(),
+                      ),
+                      keyboardType: TextInputType.phone,
+                    ),
+
+                    const SizedBox(height: 10),
+                    _isUploadingEngineerInfo
+                        ? const Center(child: CircularProgressIndicator())
+                        : ElevatedButton.icon(
+                            onPressed: _uploadSiteEngineerInfo,
+                            icon: const Icon(
+                              Icons.person_add,
+                              color: Colors.white,
+                            ),
+                            label: const Text('Add Site Engineer'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.blue,
+                              foregroundColor: Colors.white,
+                              minimumSize: const Size.fromHeight(50),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              elevation: 4,
+                            ),
+                          ),
+                    const SizedBox(height: 20),
+                  ],
+                ),
+
+              const SizedBox(height: 10),
 
               // NEW: Upload Quality & Safety File Button (Developer Only)
               if (isCurrentUserDeveloper) // Only show if current user is a developer
